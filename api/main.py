@@ -21,7 +21,9 @@ from api.models import (
     WorkloadRequest, TransactionRequest, NodeActionRequest,
     PartitionRequest, NetemRequest, MaliciousActionRequest,
     ModeRequest, GeoPresetRequest, SpeedControlRequest,
-    ScenarioRunRequest, BenchmarkRunRequest, MonkeyRunRequest
+    ScenarioRunRequest, BenchmarkRunRequest, MonkeyRunRequest,
+    SlowLeaderRequest, PlannedTransferRequest, ManualTxRequest,
+    CustomScenarioRequest
 )
 from api.ws import ConnectionManager
 from api.prometheus import format_prometheus_metrics
@@ -143,6 +145,34 @@ def inject_malicious(req: MaliciousActionRequest) -> Dict[str, Any]:
     """Arm validator to perform Byzantine dual-proposal equivocation."""
     cluster.inject_malicious_equivocation(req.node)
     return {"status": "ok", "malicious_node": req.node, "behavior": req.behavior}
+
+
+@app.post("/chaos/slow_leader")
+def slow_leader(req: SlowLeaderRequest) -> Dict[str, Any]:
+    """Inject Gray Failure: delay leader outbound heartbeats by specified milliseconds."""
+    cluster.set_slow_leader(req.node, slow=req.slow, delay_ms=req.delay_ms)
+    return {"status": "ok", "node": req.node, "slow": req.slow, "delay_ms": req.delay_ms}
+
+
+@app.post("/chaos/transfer_leadership")
+def transfer_leadership(req: PlannedTransferRequest) -> Dict[str, Any]:
+    """Trigger planned leader transfer via TimeoutNow."""
+    cluster.transfer_leadership(req.target)
+    return {"status": "ok", "target": req.target}
+
+
+@app.post("/tx/submit")
+def submit_manual_tx(req: ManualTxRequest) -> Dict[str, Any]:
+    """Submit a client transaction from the Interactive Transaction Studio."""
+    result = cluster.submit_client_tx(req.sender_idx, req.recipient_idx, req.amount)
+    return result
+
+
+@app.post("/scenario/custom")
+def run_custom_scenario(req: CustomScenarioRequest) -> Dict[str, Any]:
+    """Execute a custom chaos timeline composed in the Visual Scenario Composer."""
+    cluster.run_custom_scenario(req.events)
+    return {"status": "ok", "name": req.name, "events_scheduled": len(req.events)}
 
 
 @app.post("/mode")

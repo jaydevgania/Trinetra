@@ -64,3 +64,24 @@ class BenchmarkRunRequest(BaseModel):
 class MonkeyRunRequest(BaseModel):
     schedules: int = 100
     seed: int = 1337
+
+
+class SlowLeaderRequest(BaseModel):
+    node: int = Field(ge=0, le=4)
+    slow: bool = True
+    delay_ms: float = Field(default=250.0, ge=10.0, le=2000.0)
+
+
+class PlannedTransferRequest(BaseModel):
+    target: Optional[int] = Field(default=None, ge=0, le=4)
+
+
+class ManualTxRequest(BaseModel):
+    sender_idx: int = Field(ge=0, le=19)
+    recipient_idx: int = Field(ge=0, le=19)
+    amount: int = Field(gt=0)
+
+
+class CustomScenarioRequest(BaseModel):
+    name: str = "Custom Chaos Timeline"
+    events: List[Dict[str, Any]]

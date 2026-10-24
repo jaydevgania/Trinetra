@@ -151,6 +151,35 @@ class LiveNarrator:
                 severity = "danger"
                 category = "safety"
 
+            case "gray_failure_detected":
+                leader = data.get("leader")
+                jitter = data.get("jitter_ms")
+                headline = f"Gray Failure Detected: Leader N{leader}"
+                text = f"Leader N{leader} is slow-but-alive ({jitter}ms delay). Health dropped below threshold. Proactive leadership transfer triggered!"
+                severity = "warning"
+                category = "failover"
+
+            case "planned_leader_transfer_started":
+                target = data.get("target")
+                headline = f"Planned Leadership Handover"
+                text = f"Active leader initiated graceful transfer to healthiest peer N{target} via TimeoutNow. Zero throughput disruption."
+                severity = "info"
+                category = "failover"
+
+            case "timeout_now_received":
+                from_l = data.get("from_leader")
+                headline = "TimeoutNow Received"
+                text = f"Received planned transfer from Leader N{from_l}. Initiating fast takeover election."
+                severity = "success"
+                category = "failover"
+
+            case "custom_tx_submitted":
+                tx_id = data.get("tx_id", "")[:10]
+                headline = f"Manual Transaction Broadcast"
+                text = f"Transaction {tx_id}.. submitted and verified. Added to leader mempool for block inclusion."
+                severity = "success"
+                category = "transaction"
+
             case "autopilot_step":
                 headline = f"Autopilot: {data.get('chapter', 'Demo Step')}"
                 text = data.get("text", "")

@@ -104,5 +104,17 @@ SCENARIO_LIBRARY: Dict[str, ScenarioDefinition] = {
             ScenarioEvent(5.0, "malicious_equivocation", {}, "ATTACK: Malicious leader attempts dual-signature equivocation!"),
             ScenarioEvent(20.0, "stop_workload", {}, "Equivocation defense evaluated.")
         ]
+    ),
+    "slow_leader": ScenarioDefinition(
+        id="slow_leader",
+        name="Gray Failure (Slow-but-Alive Leader Transfer)",
+        description="Leader experiences 250ms internal outbound delay. Followers detect heartbeat jitter degradation and trigger planned leader transfer before throughput collapses.",
+        duration_sec=20.0,
+        events=[
+            ScenarioEvent(0.5, "start_workload", {"tps": 120.0}, "Baseline workload running."),
+            ScenarioEvent(4.0, "slow_leader", {"delay_ms": 250.0}, "GRAY FAILURE: Leader outbound delayed by 250ms."),
+            ScenarioEvent(12.0, "clear_slow_leader", {}, "Leader recovered."),
+            ScenarioEvent(20.0, "stop_workload", {}, "Gray failure test concluded.")
+        ]
     )
 }

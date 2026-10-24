@@ -110,6 +110,11 @@ class ValidatorNode:
         self.is_slow_leader: bool = False
         self.slow_delay_ms: float = 250.0
 
+        # Gray Failure Detection (A12)
+        self.leader_health: float = 100.0
+        self.slow_heartbeat_count: int = 0
+        self.last_heartbeat_ts: Optional[float] = None
+
         # Event Bus notification hooks
         self.event_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None
 
@@ -447,7 +452,34 @@ class ValidatorNode:
             "send_ts": self.clock.t
         }
         msg = RPCMessage(type="AppendEntries", term=self.current_term, src=self.node_id, dst=peer, data=data)
-        self.network.send(self.node_id, peer, msg, self._on_packet_delivered)
+        
+        # If slow leader (Gray Failure injection), delay outbound RPCs
+        if self.is_slow_leader:
+            delay_sec = self.slow_delay_ms / 1000.0
+            self.clock.call_later(delay_sec, lambda: self.network.send(self.node_id, peer, msg))
+        else:
+            self.network.send(self.node_id, peer, msg)
+
+    def transfer_leadership(self, target_follower: Optional[int] = None) -> None:
+        """
+        Planned Leadership Transfer (Raft §3.10 / A12 Gray Failure Defense).
+        Proactively hands over leadership to the healthiest follower without election delay.
+        """
+        if self.role != NodeRole.LEADER:
+            return
+        if target_follower is None:
+            # Pick peer with lowest match lag / best RTT
+            target_follower = self.peers[0] if self.peers else 0
+
+        self.emit_event("planned_leader_transfer_started", {"target": target_follower})
+        msg = RPCMessage(
+            type="TimeoutNow",
+            term=self.current_term,
+            src=self.node_id,
+            dst=target_follower,
+            data={"leader_id": self.node_id}
+        )
+        self.network.send(self.node_id, target_follower, msg)
 
     # ---------------------------------------------------------
     # Message Dispatch & Handlers
@@ -488,6 +520,8 @@ class ValidatorNode:
                 self.handle_echo(msg)
             case "EquivProof":
                 self.handle_equiv_proof(msg)
+            case "TimeoutNow":
+                self.handle_timeout_now(msg)
 
     def handle_prevote(self, msg: RPCMessage) -> None:
         """Handle incoming PreVote from candidate."""
@@ -554,12 +588,40 @@ class ValidatorNode:
             if len(self.votes_received) >= (len(self.peers) + 1) // 2 + 1:
                 self.become_leader()
 
+    def handle_timeout_now(self, msg: RPCMessage) -> None:
+        """Planned Leader Transfer: Immediately trigger election without waiting for timer."""
+        if self.role == NodeRole.CRASHED:
+            return
+        self.emit_event("timeout_now_received", {"from_leader": msg.src})
+        self.start_real_election()
+
     def handle_append(self, msg: RPCMessage) -> None:
         """Handle AppendEntries / heartbeat from leader."""
         # Record arrival for adaptive follower EWMA jitter calculation
         self.adaptive.record_heartbeat(self.clock.t)
 
         leader_id = msg.data["leader_id"]
+
+        # Gray Failure Monitoring (A12): Track heartbeat inter-arrival delays
+        now_ts = self.clock.t
+        if self.last_heartbeat_ts is not None:
+            delta_ms = (now_ts - self.last_heartbeat_ts) * 1000.0
+            if delta_ms > 200.0:
+                self.slow_heartbeat_count += 1
+                self.leader_health = max(0.0, self.leader_health - 25.0)
+                if self.slow_heartbeat_count >= 3 and self.leader_health <= 40.0:
+                    self.emit_event("gray_failure_detected", {
+                        "leader": leader_id,
+                        "health": self.leader_health,
+                        "jitter_ms": round(delta_ms, 1)
+                    })
+                    # Proactively trigger planned leader transfer
+                    self.start_real_election()
+                    self.slow_heartbeat_count = 0
+            else:
+                self.slow_heartbeat_count = max(0, self.slow_heartbeat_count - 1)
+                self.leader_health = min(100.0, self.leader_health + 10.0)
+        self.last_heartbeat_ts = now_ts
         prev_log_index = msg.data["prev_log_index"]
         prev_log_term = msg.data["prev_log_term"]
         leader_commit = msg.data["leader_commit"]

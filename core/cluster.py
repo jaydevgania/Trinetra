@@ -174,6 +174,89 @@ class ClusterController:
         else:
             self.emit_narrative("latency_storm_cleared", {})
 
+    def set_slow_leader(self, node_id: int, slow: bool = True, delay_ms: float = 250.0) -> None:
+        """Inject Gray Failure: delay leader outbound heartbeats/proposals."""
+        if 0 <= node_id < self.node_count:
+            self.nodes[node_id].is_slow_leader = slow
+            self.nodes[node_id].slow_delay_ms = delay_ms
+            if slow:
+                self.emit_narrative("gray_failure_detected", {"leader": node_id, "jitter_ms": delay_ms})
+
+    def transfer_leadership(self, target_node: Optional[int] = None) -> None:
+        """Trigger planned leader transfer."""
+        leader = self.get_current_leader()
+        if leader:
+            leader.transfer_leadership(target_node)
+
+    def submit_client_tx(self, sender_idx: int, recipient_idx: int, amount: int) -> Dict[str, Any]:
+        """Submit a manual client transfer transaction from Transaction Studio."""
+        if not (0 <= sender_idx < len(self.workload.keypairs)) or not (0 <= recipient_idx < len(self.workload.keypairs)):
+            raise ValueError("Invalid account index")
+
+        sender_kp = self.workload.keypairs[sender_idx]
+        recipient_kp = self.workload.keypairs[recipient_idx]
+        sender_pubkey = sender_kp.public_key_hex
+        recipient_pubkey = recipient_kp.public_key_hex
+
+        self.workload.account_nonces[sender_pubkey] += 1
+        nonce = self.workload.account_nonces[sender_pubkey]
+
+        tx = Transaction(
+            sender=sender_pubkey,
+            recipient=recipient_pubkey,
+            amount=amount,
+            nonce=nonce,
+            timestamp=self.clock.t
+        )
+        tx.sign(sender_kp)
+
+        leader = self.get_current_leader()
+        if leader:
+            leader.propose_transactions([tx])
+            self.emit_narrative("custom_tx_submitted", {"tx_id": tx.tx_id, "amount": amount})
+            return {
+                "status": "submitted",
+                "tx_id": tx.tx_id,
+                "sender": sender_pubkey[:12] + "..",
+                "recipient": recipient_pubkey[:12] + "..",
+                "amount": amount,
+                "nonce": nonce,
+                "sig": tx.sig[:16] + ".."
+            }
+        else:
+            return {"status": "error", "message": "No active leader available"}
+
+    def run_custom_scenario(self, events: List[Dict[str, Any]]) -> None:
+        """Execute custom timeline events from Visual Scenario Composer."""
+        start_t = self.clock.t
+        for ev in events:
+            offset = float(ev.get("time_offset_sec", 1.0))
+            action = ev.get("action")
+            params = ev.get("params", {})
+            narration = ev.get("narration", "")
+
+            def _act(a=action, p=params, n=narration):
+                if n:
+                    self.emit_narrative("scenario_event", {"text": n})
+                if a == "crash":
+                    self.crash_node(int(p.get("node", 0)))
+                elif a == "recover":
+                    self.recover_node(int(p.get("node", 0)))
+                elif a == "partition":
+                    self.partition_network(p.get("groups", [[0, 1], [2, 3, 4]]))
+                elif a == "heal":
+                    self.heal_partitions()
+                elif a == "netem":
+                    self.inject_netem(drop_prob=p.get("drop_prob"), delay_ms=p.get("delay_ms"), jitter_ms=p.get("jitter_ms"))
+                elif a == "malicious":
+                    self.inject_malicious_equivocation(int(p.get("node", 0)))
+                elif a == "slow_leader":
+                    self.set_slow_leader(int(p.get("node", 0)), slow=True, delay_ms=float(p.get("delay_ms", 250.0)))
+                elif a == "clear_slow_leader":
+                    self.set_slow_leader(int(p.get("node", 0)), slow=False)
+
+            self.clock.call_later(offset, _act)
+
     def inject_malicious_equivocation(self, node_id: int) -> None:
         """Arm specified node to equivocate on its next proposed block."""
         if 0 <= node_id < self.node_count:
@@ -267,5 +350,13 @@ class ClusterController:
                 "target_tps": self.workload.target_tps,
                 "invalid_pct": self.workload.invalid_pct,
                 "txs_generated": self.workload.txs_generated
-            }
+            },
+            "accounts": [
+                {
+                    "index": i,
+                    "pubkey": kp.public_key_hex[:10] + "..",
+                    "full_pubkey": kp.public_key_hex,
+                    "balance": self.nodes[0].ledger.balances.get(kp.public_key_hex, 0)
+                } for i, kp in enumerate(self.workload.keypairs[:10])
+            ]
         }

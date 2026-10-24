@@ -116,6 +116,15 @@ function handleSnapshot(snapshot) {
     if (snapshot.latest_narrative) {
         document.getElementById('narratorHeadline').textContent = snapshot.latest_narrative.headline;
         document.getElementById('narratorText').textContent = snapshot.latest_narrative.text;
+        if (snapshot.latest_narrative.text !== lastSpokenNarrative) {
+            lastSpokenNarrative = snapshot.latest_narrative.text;
+            speakNarrative(snapshot.latest_narrative.headline + ". " + snapshot.latest_narrative.text);
+        }
+    }
+
+    // Populate Transaction Studio Accounts
+    if (snapshot.accounts) {
+        populateStudioAccounts(snapshot.accounts);
     }
 
     // Update Autopilot Status Pill
@@ -804,12 +813,254 @@ function togglePresentationMode() {
 }
 
 // -------------------------------------------------------------
+// Voice Narration (Web Speech API) & Theme Switcher
+// -------------------------------------------------------------
+let voiceEnabled = false;
+let lastSpokenNarrative = "";
+
+function toggleVoiceNarration() {
+    voiceEnabled = !voiceEnabled;
+    const btn = document.getElementById('btnVoiceToggle');
+    if (voiceEnabled) {
+        btn.textContent = '🔊 Voice: ON';
+        btn.classList.add('active');
+        speakNarrative("Trinetra Voice Narration Activated. Live consensus commentary enabled.");
+    } else {
+        btn.textContent = '🔊 Voice: OFF';
+        btn.classList.remove('active');
+        if ('speechSynthesis' in window) {
+            window.speechSynthesis.cancel();
+        }
+    }
+}
+
+function speakNarrative(text) {
+    if (!voiceEnabled || !('speechSynthesis' in window)) return;
+    try {
+        window.speechSynthesis.cancel();
+        const utter = new SpeechSynthesisUtterance(text);
+        utter.rate = 1.05;
+        utter.pitch = 1.0;
+        window.speechSynthesis.speak(utter);
+    } catch (err) {
+        console.warn("TTS error:", err);
+    }
+}
+
+function toggleTheme() {
+    document.body.classList.toggle('light-theme');
+    const isLight = document.body.classList.contains('light-theme');
+    localStorage.setItem('trinetra_theme', isLight ? 'light' : 'dark');
+}
+
+// -------------------------------------------------------------
+// Gray Failure & Planned Leader Transfer (Feature A12)
+// -------------------------------------------------------------
+let isSlowLeaderActive = false;
+
+function toggleSlowLeader() {
+    isSlowLeaderActive = !isSlowLeaderActive;
+    const btn = document.getElementById('btnSlowLeader');
+    const leaderId = lastSnapshot ? (lastSnapshot.nodes.find(n => n.is_leader)?.id ?? 0) : 0;
+    postAPI('/chaos/slow_leader', { node: leaderId, slow: isSlowLeaderActive, delay_ms: 250.0 });
+    if (isSlowLeaderActive) {
+        btn.classList.add('danger');
+        btn.textContent = 'Slow Leader Active (250ms)';
+    } else {
+        btn.classList.remove('danger');
+        btn.textContent = 'Slow Leader (250ms Outbound)';
+    }
+}
+
+function triggerPlannedTransfer() {
+    const leader = lastSnapshot ? lastSnapshot.nodes.find(n => n.is_leader) : null;
+    const target = leader ? (leader.id + 1) % 5 : 1;
+    postAPI('/chaos/transfer_leadership', { target: target });
+}
+
+// -------------------------------------------------------------
+// Visual Scenario Composer (Feature A14)
+// -------------------------------------------------------------
+let customTimelineEvents = [
+    { time_offset_sec: 3.0, action: "crash", params: { node: 0 }, narration: "Crash active leader N0" },
+    { time_offset_sec: 7.0, action: "recover", params: { node: 0 }, narration: "Reboot former leader N0 as Follower" },
+    { time_offset_sec: 12.0, action: "partition", params: { groups: [[0, 1], [2, 3, 4]] }, narration: "Partition split 2 vs 3" },
+    { time_offset_sec: 18.0, action: "heal", params: {}, narration: "Heal network split" }
+];
+
+function renderComposerTimeline() {
+    const container = document.getElementById('composerTimelineList');
+    if (!container) return;
+    if (customTimelineEvents.length === 0) {
+        container.innerHTML = '<div style="color: var(--muted); font-size: 11px;">Timeline is empty. Click "+ Add Event Block" above.</div>';
+        return;
+    }
+    let html = '';
+    customTimelineEvents.forEach((ev, idx) => {
+        html += `
+            <div class="composer-event-card">
+                <span class="composer-remove" onclick="removeComposerEvent(${idx})">&times;</span>
+                <div class="composer-time">+${ev.time_offset_sec.toFixed(1)}s</div>
+                <div class="composer-name">${ev.action.toUpperCase()}</div>
+                <div class="composer-desc">${ev.narration || JSON.stringify(ev.params)}</div>
+            </div>
+        `;
+    });
+    container.innerHTML = html;
+}
+
+function openAddEventModal() {
+    document.getElementById('addEventModal').style.display = 'flex';
+}
+
+function closeAddEventModal() {
+    document.getElementById('addEventModal').style.display = 'none';
+}
+
+function saveEventBlock() {
+    const offset = parseFloat(document.getElementById('evTimeOffset').value) || 5.0;
+    const act = document.getElementById('evActionType').value;
+    const node = parseInt(document.getElementById('evTargetNode').value) || 0;
+    const narration = document.getElementById('evNarration').value || '';
+
+    let params = {};
+    if (['crash', 'recover', 'slow_leader'].includes(act)) {
+        params = { node: node, delay_ms: 250.0 };
+    } else if (act === 'partition') {
+        params = { groups: [[0, 1], [2, 3, 4]] };
+    } else if (act === 'netem') {
+        params = { delay_ms: 200.0, drop_prob: 0.1, jitter_ms: 20.0 };
+    } else if (act === 'malicious') {
+        params = { node: node, behavior: 'equivocate' };
+    }
+
+    customTimelineEvents.push({
+        time_offset_sec: offset,
+        action: act,
+        params: params,
+        narration: narration
+    });
+    customTimelineEvents.sort((a, b) => a.time_offset_sec - b.time_offset_sec);
+    renderComposerTimeline();
+    closeAddEventModal();
+}
+
+function removeComposerEvent(idx) {
+    customTimelineEvents.splice(idx, 1);
+    renderComposerTimeline();
+}
+
+async function runCustomTimeline() {
+    if (customTimelineEvents.length === 0) {
+        alert("Please add at least one event block to the timeline.");
+        return;
+    }
+    const res = await postAPI('/scenario/custom', { name: "Custom Operator Timeline", events: customTimelineEvents });
+    if (res) {
+        alert(`Successfully scheduled ${customTimelineEvents.length} chaos events on the cluster timeline!`);
+    }
+}
+
+function exportCustomScenario() {
+    const jsonStr = JSON.stringify(customTimelineEvents, null, 2);
+    showModal("Exported Scenario JSON Definition", jsonStr);
+}
+
+function importCustomScenario() {
+    const pasted = prompt("Paste your Custom Scenario JSON array:");
+    if (!pasted) return;
+    try {
+        const parsed = JSON.parse(pasted);
+        if (Array.isArray(parsed)) {
+            customTimelineEvents = parsed;
+            renderComposerTimeline();
+            alert("Scenario imported successfully!");
+        } else {
+            alert("Invalid format: expected JSON array of event objects.");
+        }
+    } catch (err) {
+        alert("JSON parse error: " + err.message);
+    }
+}
+
+// -------------------------------------------------------------
+// Interactive Transaction Studio & Wallet
+// -------------------------------------------------------------
+let accountsPopulated = false;
+
+function populateStudioAccounts(accounts) {
+    if (!accounts || accounts.length === 0) return;
+    const senderSel = document.getElementById('txSenderSelect');
+    const recipSel = document.getElementById('txRecipientSelect');
+    if (!senderSel || !recipSel) return;
+
+    if (!accountsPopulated) {
+        senderSel.innerHTML = '';
+        recipSel.innerHTML = '';
+        accounts.forEach(acc => {
+            const optS = document.createElement('option');
+            optS.value = acc.index;
+            optS.textContent = `Account #${acc.index} (${acc.pubkey}) - Balance: ${acc.balance}`;
+            senderSel.appendChild(optS);
+
+            const optR = document.createElement('option');
+            optR.value = acc.index;
+            optR.textContent = `Account #${acc.index} (${acc.pubkey})`;
+            recipSel.appendChild(optR);
+        });
+        recipSel.selectedIndex = Math.min(1, accounts.length - 1);
+        accountsPopulated = true;
+    } else {
+        Array.from(senderSel.options).forEach((opt, idx) => {
+            if (accounts[idx]) {
+                opt.textContent = `Account #${accounts[idx].index} (${accounts[idx].pubkey}) - Balance: ${accounts[idx].balance}`;
+            }
+        });
+    }
+}
+
+async function submitManualTransaction() {
+    const sender = parseInt(document.getElementById('txSenderSelect').value) || 0;
+    const recip = parseInt(document.getElementById('txRecipientSelect').value) || 1;
+    const amt = parseInt(document.getElementById('txAmountInput').value) || 100;
+
+    if (sender === recip) {
+        alert("Sender and Recipient must be distinct accounts.");
+        return;
+    }
+
+    const res = await postAPI('/tx/submit', { sender_idx: sender, recipient_idx: recip, amount: amt });
+    if (res && res.status === 'submitted') {
+        document.getElementById('txReceiptPlaceholder').style.display = 'none';
+        const card = document.getElementById('txReceiptCard');
+        card.style.display = 'block';
+        document.getElementById('txReceiptContent').innerHTML = `
+            <strong>Tx Hash:</strong> ${res.tx_id}<br>
+            <strong>Sender:</strong> ${res.sender}<br>
+            <strong>Recipient:</strong> ${res.recipient}<br>
+            <strong>Amount:</strong> ${res.amount} Tokens (Nonce: #${res.nonce})<br>
+            <strong>Ed25519 Sig:</strong> ${res.sig}<br>
+            <span style="color: var(--accent); cursor: pointer; text-decoration: underline;" onclick="inspectBlockMerkle(lastSnapshot.nodes[0].height)">
+                🔍 Verify Merkle Branch Proof for this Tx
+            </span>
+        `;
+    } else {
+        alert("Failed to submit transaction: " + (res ? res.message : "Network error"));
+    }
+}
+
+// -------------------------------------------------------------
 // App Bootstrap
 // -------------------------------------------------------------
 window.addEventListener('load', () => {
+    // Check saved theme
+    if (localStorage.getItem('trinetra_theme') === 'light') {
+        document.body.classList.add('light-theme');
+    }
     resizeCanvas();
     window.addEventListener('resize', resizeCanvas);
     initChart();
     initWebSocket();
     renderNetwork();
+    renderComposerTimeline();
 });

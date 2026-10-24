@@ -61,6 +61,12 @@
                 </div>
             </div>
 
+            <!-- Voice Narration Button (TTS) -->
+            <button class="pres-btn voice-btn" id="btnVoiceToggle" onclick="toggleVoiceNarration()" title="Web Speech API audible voice commentary">🔊 Voice: OFF</button>
+
+            <!-- Light / Dark Theme Switcher (Section 19.1) -->
+            <button class="ctrl-btn" onclick="toggleTheme()" title="Switch Light/Dark Theme">🌓</button>
+
             <!-- Presentation Mode Toggle (Section 19.4) -->
             <button class="pres-btn" onclick="togglePresentationMode()" title="Enlarge display and hide controls for projector">Projector Mode</button>
         </div>
@@ -169,6 +175,14 @@
                         </div>
                     </div>
 
+                    <div>
+                        <div class="section-label">Gray Failure & Planned Handover (A12)</div>
+                        <div class="node-btn-row">
+                            <button class="action-btn warning" id="btnSlowLeader" onclick="toggleSlowLeader()">Slow Leader (250ms Outbound)</button>
+                            <button class="action-btn primary" onclick="triggerPlannedTransfer()">Proactive Transfer (TimeoutNow)</button>
+                        </div>
+                    </div>
+
                     <div class="slider-group">
                         <div class="section-label">Network Emulation (Netem)</div>
                         <div class="slider-row">
@@ -252,6 +266,8 @@
                 <button class="tab-btn" onclick="switchTab('tabTracer')">Wireshark Message Tracer (A7)</button>
                 <button class="tab-btn" onclick="switchTab('tabBenchmark')">Adaptive Benchmark Harness</button>
                 <button class="tab-btn" onclick="switchTab('tabMerkle')">Merkle Roots & Proofs (A6)</button>
+                <button class="tab-btn" onclick="switchTab('tabComposer')">Scenario Composer (A14)</button>
+                <button class="tab-btn" onclick="switchTab('tabStudio')">Interactive Tx Studio</button>
                 <button class="tab-btn" onclick="switchTab('tabReport')">Resilience Certification Report</button>
             </div>
 
@@ -310,7 +326,60 @@
                 </div>
             </div>
 
-            <!-- TAB 5: DOWNLOAD CERTIFICATION REPORT -->
+            <!-- TAB 5: VISUAL SCENARIO COMPOSER (Feature A14) -->
+            <div class="tab-pane" id="tabComposer">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                    <div>
+                        <strong style="font-size: 13px;">Chaos Scenario Composer</strong>
+                        <span style="font-size: 11px; color: var(--muted); margin-left: 8px;">Build visual timelines, export JSON, and replay.</span>
+                    </div>
+                    <div style="display: flex; gap: 8px;">
+                        <button class="action-btn" onclick="openAddEventModal()">+ Add Event Block</button>
+                        <button class="action-btn" onclick="exportCustomScenario()">Export JSON</button>
+                        <button class="action-btn" onclick="importCustomScenario()">Import JSON</button>
+                        <button class="action-btn primary" onclick="runCustomTimeline()">▶ Run Timeline</button>
+                    </div>
+                </div>
+                <div class="composer-timeline" id="composerTimelineList">
+                    <!-- Populated dynamically with timeline cards -->
+                </div>
+            </div>
+
+            <!-- TAB 6: INTERACTIVE TRANSACTION STUDIO & WALLET -->
+            <div class="tab-pane" id="tabStudio">
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                    <div>
+                        <h4 style="margin-bottom: 10px; font-size: 12px; text-transform: uppercase; color: var(--muted);">Ed25519 Token Transfer Studio</h4>
+                        <div class="form-group">
+                            <label class="form-label">Sender Account</label>
+                            <select class="form-select" id="txSenderSelect"></select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Recipient Account</label>
+                            <select class="form-select" id="txRecipientSelect"></select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Transfer Amount (Tokens)</label>
+                            <input type="number" class="form-input" id="txAmountInput" value="150" min="1">
+                        </div>
+                        <button class="action-btn primary" style="width: 100%; padding: 10px;" onclick="submitManualTransaction()">
+                            ✍️ Sign with Ed25519 &amp; Broadcast to Cluster
+                        </button>
+                    </div>
+                    <div>
+                        <h4 style="margin-bottom: 10px; font-size: 12px; text-transform: uppercase; color: var(--muted);">Real-Time Cryptographic Receipt</h4>
+                        <div id="txReceiptPlaceholder" style="color: var(--muted); font-size: 12px; padding: 20px; background: var(--bg); border: 1px dashed var(--border); border-radius: var(--radius-sm); text-align: center;">
+                            Submit a transaction to observe monotonic nonces, digital signature generation, mempool queueing, and Merkle root verification.
+                        </div>
+                        <div class="receipt-card" id="txReceiptCard">
+                            <div style="font-weight: bold; color: var(--healthy); margin-bottom: 6px;">✔ Transaction Committed &amp; Applied</div>
+                            <div style="font-size: 11px; font-family: var(--font-mono); line-height: 1.6;" id="txReceiptContent"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 7: DOWNLOAD CERTIFICATION REPORT -->
             <div class="tab-pane" id="tabReport">
                 <div style="padding: 16px; text-align: center;">
                     <h3 style="margin-bottom: 8px;">Consortium Resilience Certification</h3>
@@ -340,6 +409,43 @@
             <div id="modalBody">
                 <pre class="code-block" id="modalCodeBlock"></pre>
             </div>
+        </div>
+    </div>
+
+    <!-- ADD EVENT MODAL (FOR SCENARIO COMPOSER) -->
+    <div class="modal-overlay" id="addEventModal">
+        <div class="modal-card" style="width: 480px;">
+            <div class="modal-header">
+                <div class="modal-title">Add Timeline Chaos Event</div>
+                <button class="modal-close" onclick="closeAddEventModal()">&times;</button>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Time Offset (Seconds from Start)</label>
+                <input type="number" class="form-input" id="evTimeOffset" value="5.0" step="0.5" min="0.5">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Chaos Action Type</label>
+                <select class="form-select" id="evActionType">
+                    <option value="crash">Crash Validator Node</option>
+                    <option value="recover">Recover Validator Node</option>
+                    <option value="partition">Network Partition Split [2 | 3]</option>
+                    <option value="heal">Heal Network Partitions</option>
+                    <option value="netem">Latency Storm (Netem)</option>
+                    <option value="malicious">Malicious Byzantine Equivocation</option>
+                    <option value="slow_leader">Slow Leader (Gray Failure)</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Target Node (0 to 4)</label>
+                <input type="number" class="form-input" id="evTargetNode" value="0" min="0" max="4">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Narration Note</label>
+                <input type="text" class="form-input" id="evNarration" value="Injected custom chaos event.">
+            </div>
+            <button class="action-btn primary" style="width: 100%; padding: 8px;" onclick="saveEventBlock()">
+                Save Event to Timeline
+            </button>
         </div>
     </div>
 
