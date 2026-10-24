@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trinetra Chaos Console | Consortium Blockchain Resilience</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <!-- Bundled local Chart.js for 100% offline fail-safe execution -->
+    <script src="/static/vendor/chart.min.js"></script>
+</head>
+<body>
+
+    <!-- TOP NAVIGATION BAR -->
+    <header class="top-nav">
+        <div class="brand">
+            <div class="brand-icon">🧿</div>
+            <div class="brand-text">
+                <h1>TRINETRA</h1>
+                <span>CHAOS CONSOLE &bull; ADAPTIVE CONSENSUS</span>
+            </div>
+        </div>
+
+        <div class="nav-controls">
+            <!-- Timers Mode -->
+            <div class="pill-group" title="Jacobson/Karels RTT Adaptive Timers vs Static 150-300ms baseline">
+                <button class="pill-btn" id="btnTimerStatic" onclick="setTimerMode('static')">Static</button>
+                <button class="pill-btn active active-accent" id="btnTimerAdaptive" onclick="setTimerMode('adaptive')">Adaptive</button>
+            </div>
+
+            <!-- Prevote Switch -->
+            <div class="pill-group" title="Pre-vote protocol prevents partitioned nodes from disrupting healthy leaders">
+                <button class="pill-btn" id="btnPrevoteOff" onclick="setPrevote(false)">PreVote Off</button>
+                <button class="pill-btn active active-green" id="btnPrevoteOn" onclick="setPrevote(true)">PreVote On</button>
+            </div>
+
+            <!-- Consensus Mode -->
+            <div class="pill-group" title="CFT Raft (3 of 5) vs Hardened Mode (4 of 5 Echo Quorum)">
+                <button class="pill-btn active" id="btnConsensusCFT" onclick="setConsensusMode('cft')">CFT Raft</button>
+                <button class="pill-btn" id="btnConsensusHardened" onclick="setConsensusMode('hardened')">Hardened 🛡️</button>
+            </div>
+
+            <!-- Geo Presets -->
+            <div class="pill-group" title="Network Propagation Delay Profile">
+                <button class="pill-btn active" id="geoDC" onclick="setGeoPreset('dc')">DC (1ms)</button>
+                <button class="pill-btn" id="geoRegional" onclick="setGeoPreset('regional')">Regional (20ms)</button>
+                <button class="pill-btn" id="geoGlobal" onclick="setGeoPreset('global')">Global (120ms)</button>
+            </div>
+
+            <!-- Simulation Pacing Controls (Feature A4) -->
+            <div class="playback-controls">
+                <button class="ctrl-btn" title="Pause / Play" id="btnPlayPause" onclick="togglePlayPause()">⏸</button>
+                <button class="ctrl-btn" title="Step 50ms forward" onclick="stepClock()">⏯</button>
+                <span style="font-size: 11px; color: var(--muted); padding: 0 4px;" id="simTimeDisplay">0.0s</span>
+            </div>
+
+            <!-- Certified Resilience Score (Feature A3) -->
+            <div class="score-badge" title="Published Formula: 0.45*Avail + 0.25*Recov + 0.20*Stab + 0.10*Eff">
+                <div>
+                    <div class="score-label">Resilience</div>
+                    <div class="score-val" id="resilienceScoreVal">A 96</div>
+                </div>
+            </div>
+
+            <!-- Presentation Mode Toggle (Section 19.4) -->
+            <button class="pres-btn" onclick="togglePresentationMode()" title="Enlarge display and hide controls for projector">Projector Mode</button>
+        </div>
+    </header>
+
+    <!-- AUTOPILOT DEMO STRIP (Feature A2) -->
+    <div class="autopilot-bar">
+        <div class="autopilot-left">
+            <button class="autopilot-launch-btn" id="btnLaunchAutopilot" onclick="startAutopilot()">
+                <span>⚡</span> Run Autopilot Demo
+            </button>
+            <div class="autopilot-pill" id="autopilotStatusPill">
+                Ready: 6-Chapter Choreographed Script
+            </div>
+        </div>
+        <div class="autopilot-actions" id="autopilotNavControls" style="display: none;">
+            <button class="ap-btn" onclick="prevAutopilotChapter()">⏮ Prev</button>
+            <button class="ap-btn" onclick="nextAutopilotChapter()">Next ⏭</button>
+            <button class="ap-btn" style="color: var(--fault);" onclick="stopAutopilot()">Stop ⏹</button>
+        </div>
+    </div>
+
+    <!-- CRITICAL FORK BANNER -->
+    <div class="fork-banner" id="forkBanner">
+        <span>🚨 CRITICAL CONSENSUS FAILURE: State fork detected! Incompatible blocks committed at identical height across validators.</span>
+        <button class="action-btn danger" style="padding: 4px 12px;" onclick="switchAndQuarantine()">Activate Hardened Mode</button>
+    </div>
+
+    <!-- MAIN CONSOLE LAYOUT -->
+    <main class="main-layout">
+        <!-- TOP SECTION: TOPOLOGY & CHAOS -->
+        <div class="top-grid">
+            <!-- LEFT: NETWORK CANVAS -->
+            <div class="panel-card">
+                <div class="panel-header">
+                    <span class="panel-title">Consortium Network Topology (5 Nodes Ring)</span>
+                    <span style="font-size: 11px; color: var(--muted);" id="topologyStatus">5/5 Nodes Synchronized</span>
+                </div>
+                <div class="network-container">
+                    <canvas id="networkCanvas"></canvas>
+                    <div class="network-legend">
+                        <div class="legend-item"><span class="dot" style="background: var(--leader);"></span> Leader (Crown)</div>
+                        <div class="legend-item"><span class="dot" style="background: var(--follower);"></span> Follower</div>
+                        <div class="legend-item"><span class="dot" style="background: var(--candidate);"></span> Candidate</div>
+                        <div class="legend-item"><span class="dot" style="background: var(--fault);"></span> Quarantined / Crashed</div>
+                        <div class="legend-item"><span class="dot" style="background: #6C63FF;"></span> RPC Packets</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- RIGHT: CHAOS CONTROLS & KPIS -->
+            <div class="panel-card">
+                <div class="panel-header">
+                    <span class="panel-title">Chaos Injection & Real-Time KPIs</span>
+                    <button class="action-btn" style="padding: 2px 8px; font-size: 10px;" onclick="runMonkeyMode()">Fuzz 1000 Runs (Monkey)</button>
+                </div>
+
+                <!-- KPI CARDS -->
+                <div class="kpi-grid">
+                    <div class="kpi-card">
+                        <div class="kpi-val" id="kpiTps">0.0</div>
+                        <div class="kpi-title">Throughput (TPS)</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-val" id="kpiP95">0 ms</div>
+                        <div class="kpi-title">p95 Latency</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-val" id="kpiMttr">0 ms</div>
+                        <div class="kpi-title">MTTR Recovery</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-val" id="kpiTerm">0</div>
+                        <div class="kpi-title">Consensus Term</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-val" id="kpiChurn">0.0</div>
+                        <div class="kpi-title">Elections / Min</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-val" id="kpiAvail">100%</div>
+                        <div class="kpi-title">Availability</div>
+                    </div>
+                </div>
+
+                <!-- CHAOS ACTIONS -->
+                <div class="chaos-section">
+                    <div>
+                        <div class="section-label">Crash Validator Node</div>
+                        <div class="node-btn-row">
+                            <button class="action-btn danger" onclick="toggleCrashNode(0)">N0</button>
+                            <button class="action-btn danger" onclick="toggleCrashNode(1)">N1</button>
+                            <button class="action-btn danger" onclick="toggleCrashNode(2)">N2</button>
+                            <button class="action-btn danger" onclick="toggleCrashNode(3)">N3</button>
+                            <button class="action-btn danger" onclick="toggleCrashNode(4)">N4</button>
+                            <button class="action-btn" onclick="recoverAll()">Recover All</button>
+                        </div>
+                    </div>
+
+                    <div>
+                        <div class="section-label">Network Partitions & Byzantine Attacks</div>
+                        <div class="node-btn-row">
+                            <button class="action-btn warning" onclick="partitionSplit()">Split [2 | 3]</button>
+                            <button class="action-btn" onclick="healPartition()">Heal Network</button>
+                            <button class="action-btn danger" onclick="injectEquivocation()">Inject Malicious Equivocation</button>
+                        </div>
+                    </div>
+
+                    <div class="slider-group">
+                        <div class="section-label">Network Emulation (Netem)</div>
+                        <div class="slider-row">
+                            <span style="font-size: 11px; width: 85px;">Latency:</span>
+                            <input type="range" id="sliderLatency" min="1" max="500" value="2" oninput="updateNetem()">
+                            <span class="slider-val" id="valLatency">2 ms</span>
+                        </div>
+                        <div class="slider-row">
+                            <span style="font-size: 11px; width: 85px;">Packet Loss:</span>
+                            <input type="range" id="sliderLoss" min="0" max="50" value="0" oninput="updateNetem()">
+                            <span class="slider-val" id="valLoss">0 %</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- MIDDLE SECTION: CHARTS & LEDGER HEAT GRID -->
+        <div class="mid-grid">
+            <!-- THROUGHPUT & LATENCY CHARTS -->
+            <div class="panel-card">
+                <div class="panel-header">
+                    <span class="panel-title">Throughput (TPS) & Confirmation Latency (p50/p95)</span>
+                    <span style="font-size: 10px; color: var(--muted);">Real-time Sliding Window</span>
+                </div>
+                <div class="chart-wrapper">
+                    <canvas id="metricsChart"></canvas>
+                </div>
+            </div>
+
+            <!-- LEDGER HEAT GRID (NODES x HEIGHTS) -->
+            <div class="panel-card">
+                <div class="panel-header">
+                    <span class="panel-title">Ledger State Heat Grid (Nodes &times; Heights)</span>
+                    <span style="font-size: 10px; color: var(--muted);">Color Split = Fork</span>
+                </div>
+                <div class="heatgrid-container">
+                    <table class="heatgrid-table" id="heatgridTable">
+                        <thead>
+                            <tr>
+                                <th>Height</th>
+                                <th>Node 0</th>
+                                <th>Node 1</th>
+                                <th>Node 2</th>
+                                <th>Node 3</th>
+                                <th>Node 4</th>
+                            </tr>
+                        </thead>
+                        <tbody id="heatgridBody">
+                            <!-- Populated dynamically -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- LIVE NARRATOR (Feature A1) -->
+        <div class="narrator-card" id="narratorCard">
+            <div class="narrator-icon">💬</div>
+            <div class="narrator-content">
+                <div class="narrator-headline" id="narratorHeadline">Consensus Initialized</div>
+                <div class="narrator-text" id="narratorText">
+                    5 validator nodes running in deterministic simulation. Ready for chaos injection and resilience auditing.
+                </div>
+            </div>
+        </div>
+
+        <!-- SAFETY INVARIANTS STATUS CHIPS -->
+        <div class="inv-bar">
+            <div class="inv-chip pass" id="invElection"><span id="invIconElection">✔</span> Election Safety</div>
+            <div class="inv-chip pass" id="invLog"><span id="invIconLog">✔</span> Log Matching</div>
+            <div class="inv-chip pass" id="invChain"><span id="invIconChain">✔</span> Chain Integrity</div>
+            <div class="inv-chip pass" id="invFork"><span id="invIconFork">✔</span> Zero Forks</div>
+            <div class="inv-chip pass" id="invStateRoot"><span id="invIconStateRoot">✔</span> State-Root Agreement</div>
+        </div>
+
+        <!-- TABS & DRAWER PANELS -->
+        <div class="panel-card">
+            <div class="tabs-nav">
+                <button class="tab-btn active" onclick="switchTab('tabEvents')">Live Event Log</button>
+                <button class="tab-btn" onclick="switchTab('tabTracer')">Wireshark Message Tracer (A7)</button>
+                <button class="tab-btn" onclick="switchTab('tabBenchmark')">Adaptive Benchmark Harness</button>
+                <button class="tab-btn" onclick="switchTab('tabMerkle')">Merkle Roots & Proofs (A6)</button>
+                <button class="tab-btn" onclick="switchTab('tabReport')">Resilience Certification Report</button>
+            </div>
+
+            <!-- TAB 1: EVENT LOG -->
+            <div class="tab-pane active" id="tabEvents">
+                <div id="eventLogContainer">
+                    <!-- Populated dynamically -->
+                </div>
+            </div>
+
+            <!-- TAB 2: MESSAGE TRACER -->
+            <div class="tab-pane" id="tabTracer">
+                <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+                    <input type="text" id="tracerFilterType" placeholder="Filter by RPC (AppendEntries, PreVote, Echo...)" style="background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 11px; flex: 1;" oninput="refreshTracer()">
+                    <button class="action-btn" style="padding: 4px 10px;" onclick="refreshTracer()">Refresh Tracer</button>
+                </div>
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Time</th>
+                            <th>Source</th>
+                            <th>Destination</th>
+                            <th>RPC Type</th>
+                            <th>Term</th>
+                            <th>Latency</th>
+                            <th>Status</th>
+                            <th>Payload</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tracerTableBody">
+                        <!-- Populated dynamically -->
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- TAB 3: BENCHMARK HARNESS -->
+            <div class="tab-pane" id="tabBenchmark">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                    <span style="font-size: 12px; color: var(--muted);">Compare Static vs Adaptive timers over 10 randomized seeds during Latency Storm.</span>
+                    <button class="action-btn primary" onclick="executeBenchmarkRun()">Run 10-Seed Comparative Benchmark</button>
+                </div>
+                <div id="benchmarkResultsArea">
+                    <p style="color: var(--muted); font-size: 12px;">Click above to run the 10-seed comparative benchmark. Results and charts will render here.</p>
+                </div>
+            </div>
+
+            <!-- TAB 4: MERKLE TREE EXPLORER -->
+            <div class="tab-pane" id="tabMerkle">
+                <div style="margin-bottom: 12px; font-size: 12px; color: var(--muted);">
+                    Inspect SHA-256 Merkle roots of committed blocks and verify inclusion proofs for individual transactions:
+                </div>
+                <div id="merkleInspectorContainer">
+                    <p style="color: var(--muted); font-size: 12px;">Click any block hash in the Ledger Heat Grid or click below to inspect Block #1 Merkle tree.</p>
+                    <button class="action-btn" onclick="inspectBlockMerkle(1)">Inspect Height 1 Merkle Proofs</button>
+                </div>
+            </div>
+
+            <!-- TAB 5: DOWNLOAD CERTIFICATION REPORT -->
+            <div class="tab-pane" id="tabReport">
+                <div style="padding: 16px; text-align: center;">
+                    <h3 style="margin-bottom: 8px;">Consortium Resilience Certification</h3>
+                    <p style="color: var(--muted); font-size: 13px; max-width: 600px; margin: 0 auto 16px auto;">
+                        Export the audited resilience scorecard containing the transparent mathematical formula, MTTR failovers, churn counts, and cryptographic consensus invariants.
+                    </p>
+                    <div style="display: flex; justify-content: center; gap: 12px;">
+                        <a href="/report?format=html" target="_blank" class="action-btn primary" style="text-decoration: none; padding: 8px 18px;">
+                            📥 View / Download HTML Report
+                        </a>
+                        <a href="/report?format=json" target="_blank" class="action-btn" style="text-decoration: none; padding: 8px 18px;">
+                            💾 Download Raw JSON Audit Log
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- INSPECTION MODAL (MERKLE PROOF & RPC DETAILS) -->
+    <div class="modal-overlay" id="inspectModal">
+        <div class="modal-card">
+            <div class="modal-header">
+                <div class="modal-title" id="modalTitle">Cryptographic Inspection</div>
+                <button class="modal-close" onclick="closeModal()">&times;</button>
+            </div>
+            <div id="modalBody">
+                <pre class="code-block" id="modalCodeBlock"></pre>
+            </div>
+        </div>
+    </div>
+
+    <!-- MAIN APP CONTROLLER SCRIPT -->
+    <script src="/static/app.js"></script>
+</body>
+</html>

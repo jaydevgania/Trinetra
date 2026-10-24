@@ -1,0 +1,115 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": 1,
+  "links": [],
+  "liveNow": true,
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "id": 1,
+      "title": "Consensus Throughput (TPS)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "consensus_tps",
+          "legendFormat": "TPS (1s window)",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "id": 2,
+      "title": "Confirmation Latency (p50 / p95)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "consensus_latency_seconds_p50 * 1000",
+          "legendFormat": "p50 Latency (ms)",
+          "refId": "A"
+        },
+        {
+          "expr": "consensus_latency_seconds_p95 * 1000",
+          "legendFormat": "p95 Latency (ms)",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 8 },
+      "id": 3,
+      "title": "Certified Resilience Score (0-100)",
+      "type": "gauge",
+      "targets": [
+        {
+          "expr": "consensus_resilience_score",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "orange", "value": 50 },
+              { "color": "yellow", "value": 65 },
+              { "color": "blue", "value": 80 },
+              { "color": "green", "value": 90 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 8 },
+      "id": 4,
+      "title": "Election Churn (Per Minute)",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "consensus_elections_churn_per_min",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 8 },
+      "id": 5,
+      "title": "MTTR Recovery Time (ms)",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "consensus_mttr_seconds * 1000",
+          "refId": "A"
+        }
+      ]
+    }
+  ],
+  "refresh": "1s",
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["trinetra", "consensus", "chaos"],
+  "time": {
+    "from": "now-5m",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": ["500ms", "1s", "5s"]
+  },
+  "timezone": "browser",
+  "title": "Trinetra Blockchain Chaos Console Telemetry",
+  "version": 1
+}
